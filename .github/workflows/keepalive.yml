@@ -1,0 +1,14 @@
+name: keepalive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    if: ${{ secrets.BOT_URL != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping bot so Render does not sleep
+        run: curl -fsS --max-time 30 "${{ secrets.BOT_URL }}/health"

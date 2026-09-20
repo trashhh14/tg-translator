@@ -10,6 +10,7 @@ from html import escape
 from dotenv import load_dotenv
 import httpx
 from telegram import (
+    CopyTextButton,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
@@ -136,8 +137,23 @@ def format_translation(original: str, translated: str, source: str, target: str)
     return translated
 
 
-def result_keyboard(target: str, origin: str = "msg", seed: str = "") -> InlineKeyboardMarkup:
+def result_keyboard(
+    target: str,
+    origin: str = "msg",
+    seed: str = "",
+    copy_text: str = "",
+) -> InlineKeyboardMarkup:
     buttons: list[list[InlineKeyboardButton]] = []
+    snippet = (copy_text or "").strip()[:256]
+    if snippet:
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    "Скопировать",
+                    copy_text=CopyTextButton(text=snippet),
+                )
+            ]
+        )
     row: list[InlineKeyboardButton] = []
     for code in QUICK_LANGS:
         mark = "• " if code == target else ""
@@ -267,7 +283,7 @@ async def translate_and_reply(
         result = await translator(context).translate(text, target)
         await wait.edit_text(
             result.text,
-            reply_markup=result_keyboard(result.target, seed=text),
+            reply_markup=result_keyboard(result.target, seed=text, copy_text=result.text),
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("translate failed")
@@ -328,7 +344,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         result = await translator(context).translate(text, target)
         await query.edit_message_text(
             result.text,
-            reply_markup=result_keyboard(result.target, seed=text),
+            reply_markup=result_keyboard(result.target, seed=text, copy_text=result.text),
         )
     except TelegramError:
         await query.answer("Не удалось обновить сообщение", show_alert=True)

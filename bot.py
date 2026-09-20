@@ -544,16 +544,20 @@ def run_webhook(application: Application, base_url: str, port: int) -> None:
 
     async def on_startup(_: web.Application) -> None:
         await application.initialize()
+        if application.post_init:
+            await application.post_init(application)
         await application.start()
         await application.bot.set_webhook(
             url=f"{base_url}/telegram",
-            allowed_updates=list(Update.ALL_TYPES),
+            allowed_updates=["message", "edited_message", "callback_query", "inline_query"],
             drop_pending_updates=False,
         )
         logger.info("Webhook set to %s/telegram", base_url)
         asyncio.create_task(keep_awake(base_url), name="keep_awake")
 
     async def on_cleanup(_: web.Application) -> None:
+        if application.post_shutdown:
+            await application.post_shutdown(application)
         await application.stop()
         await application.shutdown()
 

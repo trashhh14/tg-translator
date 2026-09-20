@@ -4,8 +4,6 @@ import asyncio
 import logging
 import os
 import re
-import uuid
-from html import escape
 
 from dotenv import load_dotenv
 import httpx
@@ -13,8 +11,7 @@ from telegram import (
     CopyTextButton,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    InlineQueryResultArticle,
-    InputTextMessageContent,
+    InlineQueryResultsButton,
     Update,
 )
 from telegram.constants import ParseMode
@@ -176,7 +173,7 @@ def help_text(username: str | None) -> str:
         "Пришли любой текст — переведу.\n"
         "Русский сам уйдёт в английский, остальное — в русский.\n\n"
         "Можно сразу язык: <code>en привет</code> или <code>de спасибо</code>\n"
-        "В группе ответь на сообщение командой /t"
+        "Под переводом есть кнопка «Скопировать»."
     )
 
 
@@ -352,96 +349,18 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await query.answer(str(exc), show_alert=True)
 
 
-def inline_articles(
-    original: str,
-    items: list[tuple[str, str, str]],
-) -> list[InlineQueryResultArticle]:
-    results: list[InlineQueryResultArticle] = []
-    for title, body, description in items:
-        results.append(
-            InlineQueryResultArticle(
-                id=str(uuid.uuid4()),
-                title=title[:64],
-                description=description[:120],
-                input_message_content=InputTextMessageContent(
-                    body[:4090],
-                    parse_mode=ParseMode.HTML,
-                ),
-            )
-        )
-    return results
-
-
 async def on_inline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.inline_query
     if not query:
         return
-    user = query.from_user
-    raw = (query.query or "").strip()
-    if not raw:
-        await query.answer(
-            [
-                InlineQueryResultArticle(
-                    id=str(uuid.uuid4()),
-                    title="Напиши текст после имени бота",
-                    description="Например: привет  ·  en: доброе утро  ·  de спасибо",
-                    input_message_content=InputTextMessageContent(
-                        "Напиши текст после имени бота, чтобы получить перевод."
-                    ),
-                )
-            ],
-            cache_time=5,
-            is_personal=True,
-        )
-        return
-
-    text, forced_target = parse_text_and_lang(raw)
-    if not text:
-        await query.answer([], cache_time=1, is_personal=True)
-        return
-    if len(text) > 1000:
-        text = text[:1000]
-
-    prefs = user_prefs(context, user.id)
-    auto_target = forced_target or smart_target(text, prefs["native"], prefs["foreign"])
-
-    articles: list[tuple[str, str, str]] = []
-    try:
-        result = await translator(context).translate(text, auto_target)
-        articles.append(
-            (
-                f"Отправить · {flag_for(result.target)} {lang_label(result.target)}",
-                escape(result.text),
-                result.text,
-            )
-        )
-        bilingual = (
-            f"{escape(text)}\n\n"
-            f"{flag_for(result.target)} {escape(result.text)}"
-        )
-        articles.append(("Оригинал + перевод", bilingual, result.text))
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("inline translate failed")
-        await query.answer(
-            [
-                InlineQueryResultArticle(
-                    id=str(uuid.uuid4()),
-                    title="Ошибка перевода",
-                    description=str(exc)[:120],
-                    input_message_content=InputTextMessageContent(
-                        f"Не получилось перевести: {exc}"
-                    ),
-                )
-            ],
-            cache_time=1,
-            is_personal=True,
-        )
-        return
-
     await query.answer(
-        inline_articles(text, articles),
-        cache_time=10,
+        [],
+        cache_time=3600,
         is_personal=True,
+        button=InlineQueryResultsButton(
+            text="Открыть переводчик",
+            start_parameter="start",
+        ),
     )
 
 

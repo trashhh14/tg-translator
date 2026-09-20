@@ -2,13 +2,12 @@ name: keepalive
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/8 * * * *"
   workflow_dispatch:
 
 jobs:
   ping:
-    if: ${{ secrets.BOT_URL != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Ping bot so Render does not sleep
-        run: curl -fsS --max-time 30 "${{ secrets.BOT_URL }}/health"
+        run: curl -fsS --retry 3 --retry-delay 15 --max-time 90 "https://tg-translator-c7iq.onrender.com/health"

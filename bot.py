@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -7,6 +8,7 @@ import uuid
 from html import escape
 
 from dotenv import load_dotenv
+import httpx
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -502,6 +504,17 @@ def main() -> None:
 def run_webhook(application: Application, base_url: str, port: int) -> None:
     from aiohttp import web
 
+    async def keep_awake(url: str) -> None:
+        await asyncio.sleep(20)
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            while True:
+                try:
+                    response = await client.get(f"{url}/health")
+                    logger.info("keepalive ping %s", response.status_code)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("keepalive ping failed: %s", exc)
+                await asyncio.sleep(8 * 60)
+
     async def telegram_webhook(request: web.Request) -> web.Response:
         data = await request.json()
         update = Update.de_json(data, application.bot)
@@ -518,9 +531,10 @@ def run_webhook(application: Application, base_url: str, port: int) -> None:
         await application.bot.set_webhook(
             url=f"{base_url}/telegram",
             allowed_updates=list(Update.ALL_TYPES),
-            drop_pending_updates=True,
+            drop_pending_updates=False,
         )
         logger.info("Webhook set to %s/telegram", base_url)
+        asyncio.create_task(keep_awake(base_url), name="keep_awake")
 
     async def on_cleanup(_: web.Application) -> None:
         await application.stop()

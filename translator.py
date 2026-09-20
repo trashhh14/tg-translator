@@ -126,7 +126,7 @@ class Translator:
         if cached:
             return cached
 
-        for provider in (self._google_chrome, self._mymemory, self._google):
+        for provider in (self._google, self._google_chrome, self._mymemory):
             try:
                 result = await provider(text, target_norm, source_norm)
                 if self._usable(text, result, source_norm, target_norm):
@@ -145,6 +145,8 @@ class Translator:
         translated = (result.text or "").strip()
         if not translated:
             return False
+        if "MYMEMORY WARNING" in translated.upper():
+            return False
         if translated.lower() == original.strip().lower() and source != target:
             return False
         return True
@@ -153,7 +155,7 @@ class Translator:
         response = await self._client.get(
             "https://translate.googleapis.com/translate_a/single",
             params={
-                "client": "at",
+                "client": "gtx",
                 "sl": source,
                 "tl": target,
                 "dt": "t",

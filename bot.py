@@ -133,7 +133,7 @@ def source_text(update: Update, extra: str) -> str:
 
 
 def format_translation(original: str, translated: str, source: str, target: str) -> str:
-    return escape(translated)
+    return translated
 
 
 def result_keyboard(target: str, origin: str = "msg", seed: str = "") -> InlineKeyboardMarkup:
@@ -266,8 +266,7 @@ async def translate_and_reply(
     try:
         result = await translator(context).translate(text, target)
         await wait.edit_text(
-            format_translation(text, result.text, result.source, result.target),
-            parse_mode=ParseMode.HTML,
+            result.text,
             reply_markup=result_keyboard(result.target, seed=text),
         )
     except Exception as exc:  # noqa: BLE001
@@ -328,8 +327,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     try:
         result = await translator(context).translate(text, target)
         await query.edit_message_text(
-            format_translation(text, result.text, result.source, result.target),
-            parse_mode=ParseMode.HTML,
+            result.text,
             reply_markup=result_keyboard(result.target, seed=text),
         )
     except TelegramError:
@@ -468,13 +466,16 @@ def main() -> None:
             "Нет токена. Создай бота в @BotFather, положи токен в файл .env:\n"
             "BOT_TOKEN=123456:ABC...\n"
         )
-    app = (
+    builder = (
         Application.builder()
         .token(BOT_TOKEN)
         .post_init(post_init)
         .post_shutdown(post_shutdown)
-        .build()
     )
+    webhook_base = (os.getenv("WEBHOOK_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").rstrip("/")
+    if webhook_base:
+        builder = builder.updater(None)
+    app = builder.build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("lang", cmd_lang))
@@ -516,14 +517,30 @@ def run_webhook(application: Application, base_url: str, port: int) -> None:
                 await asyncio.sleep(8 * 60)
 
     async def telegram_webhook(request: web.Request) -> web.Response:
-        data = await request.json()
-        update = Update.de_json(data, application.bot)
-        if update:
-            await application.process_update(update)
+        try:
+            data = await request.json()
+            update = Update.de_json(data, application.bot)
+            if update:
+                await application.update_queue.put(update)
+        except Exception:
+            logger.exception("webhook update failed")
         return web.Response(text="ok")
 
     async def health(_: web.Request) -> web.Response:
         return web.Response(text="ok")
+
+    async def diag(_: web.Request) -> web.Response:
+        tr: Translator | None = application.bot_data.get("translator")
+        if not tr:
+            return web.json_response({"ok": False, "error": "translator not ready"}, status=503)
+        try:
+            result = await tr.translate("привет", "en")
+            return web.json_response(
+                {"ok": True, "provider": result.provider, "text": result.text}
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("diag translate failed")
+            return web.json_response({"ok": False, "error": str(exc)}, status=500)
 
     async def on_startup(_: web.Application) -> None:
         await application.initialize()
@@ -544,6 +561,7 @@ def run_webhook(application: Application, base_url: str, port: int) -> None:
     web_app.router.add_post("/telegram", telegram_webhook)
     web_app.router.add_get("/", health)
     web_app.router.add_get("/health", health)
+    web_app.router.add_get("/diag", diag)
     web_app.on_startup.append(on_startup)
     web_app.on_cleanup.append(on_cleanup)
     web.run_app(web_app, host="0.0.0.0", port=port, print=None)
